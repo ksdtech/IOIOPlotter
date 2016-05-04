@@ -1,30 +1,5 @@
 package mobi.ioio.plotter_app;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.ObjectOutputStream;
-import java.util.ArrayList;
-import java.util.List;
-
-import mobi.ioio.plotter.shapes.BinaryImageMultiCurve;
-import mobi.ioio.plotter.trace.BinaryImage;
-
-import org.opencv.android.BaseLoaderCallback;
-import org.opencv.android.LoaderCallbackInterface;
-import org.opencv.android.OpenCVLoader;
-import org.opencv.android.Utils;
-import org.opencv.core.Core;
-import org.opencv.core.CvType;
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfByte;
-import org.opencv.core.Scalar;
-import org.opencv.core.Size;
-import org.opencv.highgui.Highgui;
-import org.opencv.imgproc.Imgproc;
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
@@ -45,6 +20,32 @@ import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
+import org.opencv.core.Core;
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectOutputStream;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+
+import mobi.ioio.plotter.shapes.BinaryImageMultiCurve;
+import mobi.ioio.plotter.trace.BinaryImage;
 
 public class EdgeTracerActivity extends Activity implements OnClickListener {
 	ImageView imageView_;
@@ -175,7 +176,7 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 		try {
 			InputStream stream;
 			if (data.getScheme().startsWith("http")) {
-				stream = new java.net.URL(data.toString()).openStream();
+				stream = new URL(data.toString()).openStream();
 			} else {
 				getContentResolver().openInputStream(data);
 				stream = getContentResolver().openInputStream(data);
@@ -187,7 +188,7 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 			}
 			MatOfByte buf = new MatOfByte();
 			buf.fromList(lb);
-			srcImage_ = Highgui.imdecode(buf, Highgui.CV_LOAD_IMAGE_GRAYSCALE);
+			srcImage_ = Imgcodecs.imdecode(buf, Imgcodecs.CV_LOAD_IMAGE_GRAYSCALE);
 			procImage_ = new Mat();
 			edgesImage_ = new Mat();
 			tmpMat_ = new Mat();
@@ -303,7 +304,7 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 		try {
 			// Write thumbnail file.
 			File thumbnail = File.createTempFile("THUMB", ".jpg", getCacheDir());
-			Highgui.imwrite(thumbnail.getAbsolutePath(), procImage_);
+			Imgcodecs.imwrite(thumbnail.getAbsolutePath(), procImage_);
 
 			// Generate trace file.
 			BinaryImage binImage = convert(edgesImage_);

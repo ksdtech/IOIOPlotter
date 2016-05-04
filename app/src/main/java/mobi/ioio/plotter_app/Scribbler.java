@@ -1,13 +1,9 @@
 package mobi.ioio.plotter_app;
 
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.MalformedURLException;
-import java.util.Map.Entry;
-import java.util.Random;
-import java.util.SortedMap;
-import java.util.TreeMap;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Bitmap.Config;
+import android.net.Uri;
 
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
@@ -18,13 +14,17 @@ import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
-import org.opencv.highgui.Highgui;
+import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
-import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.Bitmap.Config;
-import android.net.Uri;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.util.Map.Entry;
+import java.util.Random;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 public class Scribbler implements Runnable {
 	enum Mode {
@@ -124,7 +124,7 @@ public class Scribbler implements Runnable {
 	private void load() throws MalformedURLException, IOException {
 		InputStream stream = resolveUri(context_, uri_);
 		Mat buf = streamToMat(stream);
-		srcImage_ = Highgui.imdecode(buf, Highgui.CV_LOAD_IMAGE_GRAYSCALE);
+		srcImage_ = Imgcodecs.imdecode(buf, Imgcodecs.CV_LOAD_IMAGE_GRAYSCALE);
 		float scale = LINE_WIDTH_TO_IMAGE_WIDTH / srcImage_.cols();
 		imageScaledToPreview_ = new Mat();
 		imageResidue_ = new Mat();
@@ -272,7 +272,7 @@ public class Scribbler implements Runnable {
 				}
 				Point p = scalePoint(e.getValue(), blur);
 				if (prevPoint != null) {
-					Core.line(previewImage_, prevPoint, p, black);
+					Imgproc.line(previewImage_, prevPoint, p, black);
 				}
 				prevPoint = p;
 			}
@@ -337,7 +337,7 @@ public class Scribbler implements Runnable {
 			generateRandomLine(image.size(), startPoint, line);
 
 			mask.setTo(new Scalar(0));
-			Core.line(mask, line[0], line[1], new Scalar(GRAY_RESOLUTION));
+			Imgproc.line(mask, line[0], line[1], new Scalar(GRAY_RESOLUTION));
 
 			double score = Core.mean(image, mask).val[0];
 			if (score > bestScore) {
