@@ -14,8 +14,8 @@ http://ytai-mer.blogspot.com/2013/05/ioio-plotter-and-motor-control-library.html
 http://ytai-mer.blogspot.com/2013/11/how-i-became-artist.html
 
 
-PFZ Notes
----------
+PFZ Build Notes
+---------------
 Forked the original Eclipse ADT repository from https://github.com/ytai/IOIOPlotter and 
 imported into Android Studio 2.1.
 
@@ -29,3 +29,80 @@ Installed OpenCV for Android Studio: http://stackoverflow.com/questions/27406303
 5. For Android Studio v1.2.2, to access to Module Settings : in the project view, right-click the dependent module -> Open Module Settings
 6. Copy libs folder under sdk/native to Android Studio under app/src/main.
 7. In Android Studio, rename the copied libs directory to jniLibs and we are done.
+
+Modified IOIOPlotter source code for OpenCV 3.x compatibility (Core, Imgproc, Imgcodecs and Highgui package changes).
+
+
+Build and Run Issues
+--------------------
+
+I got this when compiling:
+
+    Note: IOIOPlotter/app/src/main/java/mobi/ioio/plotter_app/PlotterService.java uses or overrides a deprecated API.
+    Note: Recompile with -Xlint:deprecation for details.
+
+I also got this in the Gradle Console when attempting to run the app on a tablet:
+
+    To run dex in process, the Gradle daemon needs a larger heap.
+    It currently has approximately 910 MB.
+    For faster builds, increase the maximum heap size for the Gradle daemon to more than 2048 MB.
+    To do this set org.gradle.jvmargs=-Xmx2048M in the project gradle.properties.
+    For more information see https://docs.gradle.org/current/userguide/build_environment.html
+    
+I put this property into ~/.gradle/gradle.properties (to apply to all gradle builds, not just AS).
+
+On Android Studio 2.1 with Java 8 or above, got 5 of these errors when attempting to run the app on a tablet:
+
+    Error converting bytecode to dex:
+    Cause: Dex cannot parse version 52 byte code.
+    This is caused by library dependencies that have been compiled using Java 8 or above.
+    If you are using the 'java' gradle plugin in a library submodule add 
+    targetCompatibility = '1.7'
+    sourceCompatibility = '1.7'
+    to that submodule's build.gradle file.
+    
+    :app:transformClassesWithDexForDebug FAILED
+
+I used File -> Project Structure in Android Studio to set these to 1.7 in all Android subprojects.
+The IOIOLibCore was the submodule using the 'java' plugin (not 'com.android.library'). For that 
+one I just added the two lines suggested to the build.gradle file.
+
+
+App Runtime Issues
+------------------
+
+The app launches with a landing screen that says "Click here to select path".  When clicked
+it gives you a choice of "Edge Tracer" or "Scribbler". Choosing either gets you a 
+"Cannot connect to OpenCV Manager". And this happens:
+
+    mobi.ioio.plotter_app E/WindowManager: android.view.WindowLeaked: 
+    Activity mobi.ioio.plotter_app.ScribblerActivity has leaked window 
+    com.android.internal.policy.impl.PhoneWindow$DecorView{1f727f3a V.E..... R.....I. 0,0-772,268} 
+    that was originally added here
+    ...
+    at android.app.Dialog.show
+    ...
+    at org.opencv.android.OpenCVLoader.initAsync(OpenCVLoader.java:100)
+    
+Fixed by installing "OpenCV Manager" app in the Google Play Store (d'oh!). And made
+sure to change the versions requested in EdgeTracerActivity.java and ScribblerActivity.java
+to OPENCV_VERSION_3_0_0, so it wouldn't try to load the 2.4 versions (different API).
+
+Then the Edge Tracer UI works until you click "Done". Then, app stops. Debugger shows:
+
+    mobi.ioio.plotter_app V/EdgeTracerActivity: Starting thinning. NZ=15153
+    mobi.ioio.plotter_app E/cv::error(): OpenCV Error: Assertion failed (m.dims >= 2) in 
+        cv::Mat::Mat(const cv::Mat&, const cv::Range&, const cv::Range&), 
+        file /home/maksim/workspace/android-pack/opencv/modules/core/src/matrix.cpp, line 441
+    mobi.ioio.plotter_app E/org.opencv.imgproc: imgproc::erode_12() caught cv::Exception: 
+        /home/maksim/workspace/android-pack/opencv/modules/core/src/matrix.cpp:441: 
+        error: (-215) m.dims >= 2 in function cv::Mat::Mat(const cv::Mat&, const cv::Range&, const cv::Range&)
+    at org.opencv.imgproc.Imgproc.erode(Imgproc.java:2007)
+    at org.opencv.imgproc.Imgproc.erode_2(Native Method)
+    at mobi.ioio.plotter_app.EdgeTracerActivity.HitAndMiss
+    
+The Scribbler Activity bombs after selecting an image:
+
+    mobi.ioio.plotter_app A/libc: Fatal signal 11 (SIGSEGV), code 1, fault addr 0x10 in tid 10336 (Thread-2181)
+    mobi.ioio.plotter_app W/ResourcesManager: Asset path '/system/framework/com.android.future.usb.accessory.jar' does not exist or contains no resources.
+
