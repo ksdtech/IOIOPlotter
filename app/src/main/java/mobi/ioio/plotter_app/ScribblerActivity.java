@@ -1,21 +1,5 @@
 package mobi.ioio.plotter_app;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.ObjectOutputStream;
-
-import mobi.ioio.plotter.Plotter.MultiCurve;
-import mobi.ioio.plotter.shapes.PointsCurve;
-import mobi.ioio.plotter.shapes.SingleCurveMultiCurve;
-import mobi.ioio.plotter_app.Scribbler.Mode;
-
-import org.opencv.android.BaseLoaderCallback;
-import org.opencv.android.LoaderCallbackInterface;
-import org.opencv.android.OpenCVLoader;
-import org.opencv.core.Point;
-import org.opencv.core.Rect;
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
@@ -36,6 +20,22 @@ import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.core.Point;
+import org.opencv.core.Rect;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+
+import mobi.ioio.plotter.Plotter.MultiCurve;
+import mobi.ioio.plotter.shapes.PointsCurve;
+import mobi.ioio.plotter.shapes.SingleCurveMultiCurve;
+import mobi.ioio.plotter_app.Scribbler.Mode;
 
 public class ScribblerActivity extends Activity implements OnClickListener {
 	ImageView imageView_;
@@ -61,7 +61,7 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		Log.i(TAG, "Trying to load OpenCV library");
-		if (!OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_6, this, mOpenCVCallBack)) {
+		if (!OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mOpenCVCallBack)) {
 			Toast.makeText(this, "Cannot connect to OpenCV Manager", Toast.LENGTH_LONG).show();
 			finish();
 		}

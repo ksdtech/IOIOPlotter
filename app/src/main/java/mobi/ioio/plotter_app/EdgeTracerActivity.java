@@ -71,7 +71,7 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		Log.i(TAG, "Trying to load OpenCV library");
-		if (!OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_6, this, mOpenCVCallBack)) {
+		if (!OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mOpenCVCallBack)) {
 			Toast.makeText(this, "Cannot connect to OpenCV Manager", Toast.LENGTH_LONG).show();
 			finish();
 		}
@@ -191,7 +191,6 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 			srcImage_ = Imgcodecs.imdecode(buf, Imgcodecs.CV_LOAD_IMAGE_GRAYSCALE);
 			procImage_ = new Mat();
 			edgesImage_ = new Mat();
-			tmpMat_ = new Mat();
 			updateImage();
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
@@ -353,6 +352,10 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 		Mat tmp = new Mat();
 		int prevnz = Core.countNonZero(image);
 		Log.v(TAG, "Starting thinning. NZ=" + prevnz);
+
+		// Core.subtract with an unspecified destination size throws error in OpenCV 3.0.0
+		// So build temp matrix here each time.
+		tmpMat_ = new Mat(image.size(), CvType.CV_8UC1);
 		while (true) {
 			for (int i = 0; i < 4; ++i) {
 				HitAndMiss(image, tmp, HNM1POS, HNM1NEG);
