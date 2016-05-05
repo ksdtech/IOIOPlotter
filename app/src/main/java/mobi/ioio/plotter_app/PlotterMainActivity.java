@@ -1,13 +1,5 @@
 package mobi.ioio.plotter_app;
 
-import java.io.InputStream;
-import java.io.ObjectInputStream;
-
-import mobi.ioio.plotter.Plotter.MultiCurve;
-import mobi.ioio.plotter.TransformedMultiCurve;
-import mobi.ioio.plotter_app.PlotterService.IOIOBinder;
-import mobi.ioio.plotter_app.PlotterService.Looper;
-import mobi.ioio.plotter_app.PlotterService.State;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.AlertDialog.Builder;
@@ -21,6 +13,7 @@ import android.content.ServiceConnection;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -35,6 +28,15 @@ import android.widget.ToggleButton;
 import com.zerokol.views.JoystickView;
 import com.zerokol.views.JoystickView.OnJoystickMoveListener;
 
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+
+import mobi.ioio.plotter.Plotter.MultiCurve;
+import mobi.ioio.plotter.TransformedMultiCurve;
+import mobi.ioio.plotter_app.PlotterService.IOIOBinder;
+import mobi.ioio.plotter_app.PlotterService.Looper;
+import mobi.ioio.plotter_app.PlotterService.State;
+
 public class PlotterMainActivity extends Activity implements OnClickListener,
 		OnJoystickMoveListener, ServiceConnection {
 	private static final float MM_PER_SEC = 40;
@@ -44,6 +46,7 @@ public class PlotterMainActivity extends Activity implements OnClickListener,
 	private float[] pageBoundsMm_ = FULL_PAGE_BOUNDS;
 
 	private static final int GET_PATH_REQUEST = 300;
+	private static final String TAG = "PlotterMainActivity";
 
 	private BroadcastReceiver receiver_ = new BroadcastReceiver() {
 		@Override
@@ -268,6 +271,8 @@ public class PlotterMainActivity extends Activity implements OnClickListener,
 				try {
 					multiCurveUri_ = data.getData();
 					thumbnailUri_ = (Uri) data.getParcelableExtra("thumbnail");
+					Log.v(TAG, "Received path result " + multiCurveUri_.toString());
+
 					updateGui();
 				} catch (Exception e) {
 					e.printStackTrace();
@@ -278,6 +283,8 @@ public class PlotterMainActivity extends Activity implements OnClickListener,
 
 	private void updateGui() {
 		final boolean hasPath = multiCurveUri_ != null;
+		Log.v(TAG, "updateGui hasPath " + (hasPath ? "true" : "false") +
+				", bound_ " + (bound_ ? "true" : "false"));
 
 		plotButton_.setEnabled(bound_ && hasPath
 				&& serviceState_ != PlotterService.State.DISCONNECTED);
