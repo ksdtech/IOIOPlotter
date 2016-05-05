@@ -1,5 +1,15 @@
 package mobi.ioio.plotter_app;
 
+import android.annotation.TargetApi;
+import android.app.Notification;
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.os.Binder;
+import android.os.Build;
+import android.os.Handler;
+import android.os.IBinder;
+import android.widget.Toast;
+
 import ioio.lib.api.DigitalOutput;
 import ioio.lib.api.Sequencer;
 import ioio.lib.api.Sequencer.ChannelConfig;
@@ -17,13 +27,6 @@ import ioio.lib.util.IOIOLooper;
 import ioio.lib.util.android.IOIOService;
 import mobi.ioio.plotter.Plotter;
 import mobi.ioio.plotter.Plotter.MultiCurve;
-import android.app.Notification;
-import android.app.PendingIntent;
-import android.content.Intent;
-import android.os.Binder;
-import android.os.Handler;
-import android.os.IBinder;
-import android.widget.Toast;
 
 public class PlotterService extends IOIOService {
 	public enum State {
@@ -55,13 +58,41 @@ public class PlotterService extends IOIOService {
 	@Override
 	public void onCreate() {
 		super.onCreate();
-		Notification notification = new Notification(R.drawable.ic_launcher, "IOIO Plotter",
-		        System.currentTimeMillis());
-		Intent notificationIntent = new Intent(this, PlotterMainActivity.class);
-		PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
+
+		Notification notification;
+		if(Build.VERSION.SDK_INT < 16) {
+			notification = buildNotificationApi10("Disconnected.");
+		} else {
+			notification = buildNotificationApi16("Disconnected.");
+		}
 		handler_ = new Handler(android.os.Looper.getMainLooper());
-		notification.setLatestEventInfo(this, "IOIO Plotter", "Disconnected.", pendingIntent);
 		startForeground(PLOTTER_NOTIFICATION, notification);
+	}
+
+	private Notification buildNotificationApi10(String text) {
+		// Deprecated in API 11
+		Notification notification = new Notification(R.drawable.ic_launcher, "IOIO Plotter",
+				System.currentTimeMillis());
+		Intent notificationIntent = new Intent(PlotterService.this, PlotterMainActivity.class);
+		PendingIntent pendingIntent = PendingIntent.getActivity(PlotterService.this, 0, notificationIntent, 0);
+
+		// Deprecated in API 11
+		notification.setLatestEventInfo(PlotterService.this, "IOIO Plotter", text, pendingIntent);
+		return notification;
+	}
+
+	@TargetApi(16)
+	private Notification buildNotificationApi16(String text) {
+		Intent notificationIntent = new Intent(PlotterService.this, PlotterMainActivity.class);
+		PendingIntent pendingIntent = PendingIntent.getActivity(PlotterService.this, 0, notificationIntent, 0);
+
+		return new Notification.Builder(PlotterService.this)
+				.setSmallIcon(R.drawable.ic_launcher)
+				.setContentTitle("IOIO Plotter")
+				.setContentText(text)
+				.setContentIntent(pendingIntent)
+				.setWhen(System.currentTimeMillis())
+				.build();
 	}
 
 	@Override
@@ -217,19 +248,20 @@ public class PlotterService extends IOIOService {
 			sequencer_.pause();
 			setCurrentState(State.PAUSED);
 		}
-	
+
 		private void setCurrentState(State state) {
 			currentState_ = state;
 			Intent intent = new Intent(ACTION_STATE_CHANGE);
 			intent.putExtra(EXTRA_STATE, state.ordinal());
 			sendStickyBroadcast(intent);
-			
-			Notification notification = new Notification(R.drawable.ic_launcher, "IOIO Plotter",
-			        System.currentTimeMillis());
-			Intent notificationIntent = new Intent(PlotterService.this, PlotterMainActivity.class);
-			PendingIntent pendingIntent = PendingIntent.getActivity(PlotterService.this, 0, notificationIntent, 0);
-			notification.setLatestEventInfo(PlotterService.this, "IOIO Plotter", state.toString(), pendingIntent);
-			
+
+			Notification notification;
+			String text = state.toString();
+			if(Build.VERSION.SDK_INT < 16) {
+				notification = buildNotificationApi10(text);
+			} else {
+				notification = buildNotificationApi16(text);
+			}
 			startForeground(PLOTTER_NOTIFICATION, notification);
 		}
 
@@ -268,7 +300,7 @@ public class PlotterService extends IOIOService {
 				}
 			});
 		}
-	
+
 		public void setManualSpeed(float x, float y) {
 			manualSpeed_ = new float[] { x * MANUAL_MM_PER_SEC * MANUAL_SEC_PER_TICK,
 					y * MANUAL_MM_PER_SEC * MANUAL_SEC_PER_TICK };

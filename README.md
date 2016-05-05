@@ -23,10 +23,10 @@ Imported IOIOLibCore and IOIOLibAndroid modules from https://github.com/ytai/ioi
 
 Installed OpenCV for Android Studio: http://stackoverflow.com/questions/27406303/opencv-in-android-studio<br>
 1. Download latest OpenCV SDK for Android from http://opencv.org/downloads.html and decompress the zip file.
-2. Import OpenCV to Android Studio, From File -> New -> Import Module, choose sdk/java folder in the unzipped OpenCV archive.
+2. Import OpenCV to Android Studio, From File > New > Import Module, choose sdk/java folder in the unzipped OpenCV archive.
 3. Update build.gradle under imported OpenCV module to update 4 fields to match your project build.gradle a) compileSdkVersion b) buildToolsVersion c) minSdkVersion and d) targetSdkVersion.
-4. Add module dependency by Application -> Module Settings, and select the Dependencies tab. Click + icon at bottom, choose Module Dependency and select the imported OpenCV module.
-5. For Android Studio v1.2.2, to access to Module Settings : in the project view, right-click the dependent module -> Open Module Settings
+4. Add module dependency by Application > Module Settings, and select the Dependencies tab. Click + icon at bottom, choose Module Dependency and select the imported OpenCV module.
+5. For Android Studio v1.2.2, to access to Module Settings : in the project view, right-click the dependent module, then Open Module Settings
 6. Copy libs folder under sdk/native to Android Studio under app/src/main.
 7. In Android Studio, rename the copied libs directory to jniLibs and we are done.
 
@@ -40,6 +40,9 @@ I got this when compiling:
 
     Note: IOIOPlotter/app/src/main/java/mobi/ioio/plotter_app/PlotterService.java uses or overrides a deprecated API.
     Note: Recompile with -Xlint:deprecation for details.
+    
+Added "Deprecated API usage" at "Error" level to File > Other Settings > Default Settings... > Editor > Inspections > Java > "Code maturity issues".
+Then ran Analyze > Inspect Code...  In Inspection window, found deprecated code for creating and setting Notifications in PlotterService.java.
 
 I also got this in the Gradle Console when attempting to run the app on a tablet:
 
@@ -101,8 +104,14 @@ Then the Edge Tracer UI works until you click "Done". Then, app stops. Debugger 
     at org.opencv.imgproc.Imgproc.erode_2(Native Method)
     at mobi.ioio.plotter_app.EdgeTracerActivity.HitAndMiss
     
-The Scribbler Activity bombs after selecting an image:
+Fixed this by setting the size of the dst matrix used in the HitAndMiss function.
+ 
+Now both the Edge Tracer and Scribbler activities bomb after processing:
 
     mobi.ioio.plotter_app A/libc: Fatal signal 11 (SIGSEGV), code 1, fault addr 0x10 in tid 10336 (Thread-2181)
     mobi.ioio.plotter_app W/ResourcesManager: Asset path '/system/framework/com.android.future.usb.accessory.jar' does not exist or contains no resources.
 
+Opened SDK Manager with Tools > Android > SDK Manager.
+
+See this? http://jeffreysambells.com/2011/05/15/identifying-your-android-usb-accessory
+Added <uses-feature> element to the manifest.
