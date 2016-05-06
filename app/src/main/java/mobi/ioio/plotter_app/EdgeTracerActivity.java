@@ -189,7 +189,7 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 			MatOfByte buf = new MatOfByte();
 			buf.fromList(lb);
 			srcImage_ = Imgcodecs.imdecode(buf, Imgcodecs.CV_LOAD_IMAGE_GRAYSCALE);
-			procImage_ = new Mat();
+			procImage_ = new Mat(); // new Mat(srcImage_.size(), CvType.CV_8UC3);
 			edgesImage_ = new Mat();
 			updateImage();
 		} catch (FileNotFoundException e) {
@@ -242,7 +242,7 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 			// Canny edge detection
 			start = System.currentTimeMillis();
 			Imgproc.Canny(edgesImage_, edgesImage_, high, low);
-			Imgproc.threshold(edgesImage_, edgesImage_, 0, 1, Imgproc.THRESH_BINARY);
+			Imgproc.threshold(edgesImage_, edgesImage_, 127, 1, Imgproc.THRESH_BINARY);
 			Log.v(TAG, "Canny took: " + (System.currentTimeMillis() - start));
 
 			procImage_.setTo(new Scalar(255, 0, 0), edgesImage_);
@@ -282,6 +282,66 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 		startActivityForResult(intent, GET_IMAGE_REQUEST_CODE);
 	}
 
+	private String showMatRow(Mat mat, int row) {
+		if (mat == null) {
+			return null;
+		}
+		int depth = mat.depth();
+		if (depth != CvType.depth(CvType.CV_8U)) {
+			return null;
+		}
+		int channels = mat.channels();
+		if (channels != 1 && channels != 3) {
+			return null;
+		}
+
+		int rows = mat.rows();
+		if (row < 0 || row >= rows) {
+			return null;
+		}
+		int cols = mat.cols();
+		if (cols > 60) {
+			cols = 60;
+		}
+		byte[] cell = new byte[channels];
+		String s = "[ ";
+		for (int j = 0; j < cols; ++j) {
+			if (j > 0) {
+				s += ", ";
+			}
+			mat.get(row, j, cell);
+			if (channels == 1) {
+				s += cell[0];
+			} else {
+				s += "( " + cell[0] + ", " + cell[1] + ", " + cell[2] + " )";
+			}
+		}
+		s += " ]";
+		return s;
+	}
+
+	private void logMat(String tag, Mat mat) {
+		int rows = mat.rows();
+		if (rows > 60) {
+			rows = 60;
+		}
+		for (int i = 0; i < rows; ++i) {
+			String row = showMatRow(mat, i);
+			if (row == null) {
+				break;
+			}
+			Log.v(tag, row);
+		}
+	}
+
+	private String debugMat(Mat mat) {
+		if (mat == null) {
+			return "null";
+		}
+		return "rows " + mat.rows() + ", cols " + mat.cols() +
+			", type " + CvType.typeToString(mat.type());
+	}
+
 	private void done() {
 		// /////////////////////////////////////////////////////////////////////////
 		// Mirror
@@ -291,13 +351,12 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 		// /////////////////////////////////////////////////////////////////////////
 		// Thinning
 		long start = System.currentTimeMillis();
-		thin(edgesImage_);
+		edgesImage_ = thin(edgesImage_);
 		Log.v(TAG, "Thinning took: " + (System.currentTimeMillis() - start));
 
 		Imgproc.cvtColor(srcImage_, procImage_, Imgproc.COLOR_GRAY2BGR);
-		Core.multiply(procImage_, new Scalar(0.25, 0.25, 0.25), procImage_);
-		Core.add(procImage_, new Scalar(192, 192, 192), procImage_);
-
+		Mat lightGray = new Mat(procImage_.size(), CvType.CV_8UC3, new Scalar(192, 192, 192));
+		Core.scaleAdd(procImage_, 0.25, lightGray, procImage_);
 		procImage_.setTo(new Scalar(0, 0, 255), edgesImage_);
 
 		try {
@@ -347,39 +406,35 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
     /**
      * Edge thinning, based on the awesome algorithm suggested here:
      * http://homepages.inf.ed.ac.uk/rbf/HIPR2/thin.htm
+	 *
+	 * PFZ: could not get ytai's orginal code to work, so trying this method:
+	 * http://felix.abecassis.me/2011/09/opencv-morphological-skeleton/
      */
-	private void thin(Mat image) {
-		Mat tmp = new Mat();
-		int prevnz = Core.countNonZero(image);
-		Log.v(TAG, "Starting thinning. NZ=" + prevnz);
+	private Mat thin(Mat image) {
+		Mat skel = new Mat(image.size(), CvType.CV_8UC1, new Scalar(0));
+		Mat temp = new Mat(image.size(), CvType.CV_8UC1);
+		Mat element = Imgproc.getStructuringElement(Imgproc.MORPH_CROSS, new Size(3, 3));
 
-		// Core.subtract with an unspecified destination size throws error in OpenCV 3.0.0
-		// So build temp matrix here each time.
-		tmpMat_ = new Mat(image.size(), CvType.CV_8UC1);
+		int prevnz = Core.countNonZero(image);
+		Log.v(TAG, "Starting thinning. NZ=" + prevnz + " out of " + (image.rows()*image.cols()));
+
+		int j = 0;
 		while (true) {
-			for (int i = 0; i < 4; ++i) {
-				HitAndMiss(image, tmp, HNM1POS, HNM1NEG);
-				Core.subtract(image, tmp, image);
-				HitAndMiss(image, tmp, HNM2POS, HNM2NEG);
-				Core.subtract(image, tmp, image);
-				rotateCCW(HNM1POS);
-				rotateCCW(HNM1NEG);
-				rotateCCW(HNM2POS);
-				rotateCCW(HNM2NEG);
-			}
-			int nz = Core.countNonZero(image);
+			++j;
+			Imgproc.morphologyEx(image, temp, Imgproc.MORPH_OPEN, element);
+			Core.bitwise_not(temp, temp);
+			Core.bitwise_and(image, temp, temp);
+			Core.bitwise_or(skel, temp, skel);
+			Imgproc.erode(image, image, element);
+
+			int nz = Core.countNonZero(skel);
+			Log.v(TAG, "Thinning after pass " + j + ". NZ=" + nz);
 			if (nz == prevnz)
 				break;
 			prevnz = nz;
 		}
 		Log.v(TAG, "Thinning done. NZ=" + prevnz);
-	}
-
-	private void HitAndMiss(Mat src, Mat dst, Mat positive, Mat negative) {
-		Imgproc.erode(src, dst, positive);
-		Core.subtract(Mat.ones(src.size(), CvType.CV_8UC1), src, tmpMat_);
-		Imgproc.erode(tmpMat_, tmpMat_, negative);
-		Core.bitwise_and(tmpMat_, dst, dst);
+		return skel;
 	}
 
 	private static BinaryImage convert(Mat edges) {

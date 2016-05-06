@@ -282,9 +282,11 @@ public class PlotterMainActivity extends Activity implements OnClickListener,
 	}
 
 	private void updateGui() {
+
 		final boolean hasPath = multiCurveUri_ != null;
 		Log.v(TAG, "updateGui hasPath " + (hasPath ? "true" : "false") +
-				", bound_ " + (bound_ ? "true" : "false"));
+				", bound_ " + (bound_ ? "true" : "false") +
+				", serviceState_ " + serviceState_.name());
 
 		plotButton_.setEnabled(bound_ && hasPath
 				&& serviceState_ != PlotterService.State.DISCONNECTED);
