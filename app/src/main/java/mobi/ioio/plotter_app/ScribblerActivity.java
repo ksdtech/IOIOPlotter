@@ -69,6 +69,7 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 	SeekBar blurSeekBar_;
 	SeekBar thresholdSeekBar_;
 	CheckBox previewCheckbox_;
+	CheckBox continuousCheckbox_;
 	Button doneButton_;
 
 	private ScribblerTask scribbler_;
@@ -129,10 +130,10 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		AsyncTask.Status status = scribbler_.getStatus();
 		if (status != AsyncTask.Status.FINISHED && status != AsyncTask.Status.RUNNING) {
 			ScribblerParams params = new ScribblerParams(this, imageUri_,
-					getBlur(), getThreshold(), getMode());
+					getBlur(), getThreshold(), getContinuous(), getMode());
 			scribbler_.execute(params);
 		} else {
-			Log.v(TAG, "Cannot start task - status is " + status.name());
+			Log.e(TAG, "Error: Cannot start task - status is " + status.name());
 		}
 	}
 
@@ -154,6 +155,10 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 
 	private float getBlur() {
 		return blurSeekBar_.getProgress() / 10.f;
+	}
+
+	private boolean getContinuous() {
+		return continuousCheckbox_.isChecked();
 	}
 
 	private BaseLoaderCallback mOpenCVCallBack = new BaseLoaderCallback(this) {
@@ -214,16 +219,17 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		private Uri uri_;
 		private float blur_;
 		private float threshold_;
-		private int scaledThreshold_;
+		private boolean continuous_;
 		private Mode mode_;
 
 		// Internals
-		private static final float LINE_WIDTH_TO_IMAGE_WIDTH = 450.f;
+		private static final float PREVIEW_COLS = 450.f;
 		private static final float GRAY_RESOLUTION = 128.f;
 		private static final int NUM_ATTEMPTS = 100;
 		private static final int MAX_LINES = 2000;
-		private static final int THRESHOLD_SCALE = -10000;
 		private Random random_;
+		private float thresholdScale_;
+		private int scaledThreshold_;
 		private Mat srcImage_;
 		private Mat imageScaledToPreview_;
 		private Mat imageResidue_;
@@ -235,7 +241,6 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 
 		@Override
 		protected void onPreExecute() {
-			Log.v(TAG, "onPreExecute");
 			super.onPreExecute();
 			random_ = new Random();
 			srcImage_ = null;
@@ -246,12 +251,12 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			lines_.clear();
 			cancelled_ = false;
 			done_ = false;
-			scaledThreshold_ = Integer.MAX_VALUE;
+			thresholdScale_ = -10000.f;
+			scaledThreshold_ = 0;
 		}
 
 		@Override
 		protected void onProgressUpdate(ScribblerProgressData... values) {
-			Log.v(TAG, "onProgressUpdate " + values[0].numLines_);
 			updateProgressUi(values[0].darkness_, values[0].numLines_);
 			if (values[0].preview_ != null) {
 				updatePreviewUi(values[0].preview_);
@@ -280,12 +285,12 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			uri_ = params[0].uri_;
 			blur_ = params[0].blur_;
 			threshold_ = params[0].threshold_;
+			continuous_ = params[0].continuous_;
 			mode_ = params[0].mode_;
-			Log.v(TAG, "doInBackground blur=" + blur_ + ", threshold=" + threshold_ + ", mode=" + mode_.name());
 
 			done_ = false;
 			cancelled_ = false;
-			scaledThreshold_ = (int) Math.floor(threshold_ * THRESHOLD_SCALE);
+			Log.v(TAG, "doInBackground blur=" + blur_ + ", threshold=" + threshold_ + ", mode=" + mode_.name());
 
 			try {
 				load();
@@ -313,13 +318,15 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			InputStream stream = resolveUri(context_, uri_);
 			Mat buf = streamToMat(stream);
 			srcImage_ = Imgcodecs.imdecode(buf, Imgcodecs.CV_LOAD_IMAGE_GRAYSCALE);
-			float scale = LINE_WIDTH_TO_IMAGE_WIDTH / srcImage_.cols();
+
+			float scale = PREVIEW_COLS / srcImage_.cols();
 			int newRows = Math.round(scale * srcImage_.rows());
-			Size previewSize = new Size(newRows, LINE_WIDTH_TO_IMAGE_WIDTH);
+			Size previewSize = new Size(PREVIEW_COLS, newRows);
 
 			imageScaledToPreview_ = new Mat();
 			Imgproc.resize(srcImage_, imageScaledToPreview_, previewSize, 0, 0,
 					Imgproc.INTER_AREA);
+
 			previewImage_ = null;
 			imageResidue_ = null;
 		}
@@ -328,14 +335,13 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			boolean sameDarkness = false;
 			boolean allLinesDirty = imageResidue_ == null;
 			boolean needMoreLines = !cancelled_;
-			int lastKey = 0;
 			if (needMoreLines && !allLinesDirty) {
 				int numLines = lines_.size();
 				if (numLines >= MAX_LINES) {
 					Log.v(TAG, "step done! MAX_LINES " + MAX_LINES + " exceeded ( " + numLines + " )");
 					needMoreLines = false;
 				} else if (numLines > 0) {
-					lastKey = lines_.lastKey();
+					int lastKey = lines_.lastKey();
 					if (lastKey > scaledThreshold_) {
 						Log.v(TAG, "step done! threshold " + scaledThreshold_ + " exceeded ( " + lastKey + " )");
 						needMoreLines = false;
@@ -343,18 +349,12 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 				}
 			}
 			boolean previewDirty = previewImage_ == null || (needMoreLines && mode_ == Mode.Vector);
-			Log.v(TAG, "step allLinesDirty=" + (allLinesDirty ? "true" : "false") +
-					", needMoreLines=" + (needMoreLines ? "true" : "false"));
 
 			if (!cancelled_ && allLinesDirty) {
 				initLines(blur_);
 			}
 			if (!cancelled_ && needMoreLines) {
-				int key = generateLine(blur_);
-				if (key == lastKey) {
-					Log.v(TAG, "sameDarkness");
-					sameDarkness = true;
-				}
+				generateLine(blur_);
 			}
 			if (!cancelled_ && previewDirty) {
 				renderPreview(blur_, threshold_, mode_);
@@ -362,7 +362,7 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			if (!cancelled_ && (needMoreLines || previewDirty)) {
 				publishProgress(new ScribblerProgressData(residualDarkness_, lines_.size(), previewImage_));
 			}
-			return sameDarkness || !needMoreLines;
+			return !needMoreLines;
 		}
 
 		private ScribblerResult getScribblerResult(float blur, float threshold) {
@@ -391,20 +391,18 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		}
 
 		private int addPoint(Point p, float blur) {
-			float d = darkness(imageResidue_);
-			residualDarkness_ =  d / blur;
-			int key = (int) Math.floor(residualDarkness_ * THRESHOLD_SCALE);
-			Log.v(TAG, "addPoint " + p.toString() + ", RD=" + residualDarkness_ + ", key=" + key);
+			residualDarkness_ =  darkness(imageResidue_) / blur;
+			int key = (int) Math.floor(residualDarkness_ * thresholdScale_);
 			lines_.put(key, p);
 			return key;
 		}
 
 		private void initLines(float blur) {
 			// Resize to native resolution divided by blur factor.
-			float scale = LINE_WIDTH_TO_IMAGE_WIDTH / blur / srcImage_.cols();
+			float scale = PREVIEW_COLS / blur / srcImage_.cols();
+			int newCols = Math.round(PREVIEW_COLS / blur);
 			int newRows = Math.round(scale * srcImage_.rows());
-			int newCols = Math.round(scale * srcImage_.cols());
-			Size s = new Size(newRows, newCols);
+			Size s = new Size(newCols, newRows);
 
 			Mat scaled = new Mat(s, srcImage_.type());
 			Imgproc.resize(srcImage_, scaled, s, 0, 0, Imgproc.INTER_AREA);
@@ -422,22 +420,29 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			Mat zeros = Mat.zeros(s, imageResidue_.type());
 			Core.scaleAdd(imageResidue_, scaledBlur, zeros, imageResidue_);
 
+			residualDarkness_ = darkness(imageResidue_) / blur;
+			thresholdScale_ = -10000.f / residualDarkness_;
+			scaledThreshold_ = (int) Math.floor(threshold_ * thresholdScale_);
+			Log.v(TAG, "initLines darkness=" + residualDarkness_ + ", thresholdScale_=" + thresholdScale_ +
+				", scaledThreshold_=" + scaledThreshold_);
+
 			// Clear map.
 			lines_.clear();
 		}
 
 		private int generateLine(float blur) {
+			Point[] line = null;
 			int key;
-			if (lines_.isEmpty()) {
-				Point[] line = nextLine(imageResidue_, NUM_ATTEMPTS, null);
+			if (lines_.isEmpty() || !continuous_) {
+				line = nextLine(imageResidue_, NUM_ATTEMPTS, null);
 				addPoint(line[0], blur);
 				key = addPoint(line[1], blur);
 			} else {
 				Point startPoint = lines_.get(lines_.lastKey());
-				Point[] line = nextLine(imageResidue_, NUM_ATTEMPTS, startPoint);
+				line = nextLine(imageResidue_, NUM_ATTEMPTS, startPoint);
 				key = addPoint(line[1], blur);
 			}
-			Log.v(TAG, "generateLine returning " + key);
+			Log.v(TAG, "generateLine [" + line[0].toString() + " - " + line[1].toString() + "] (" + key + ")");
 			return key;
 		}
 
@@ -450,35 +455,39 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 				}
 
 				if (mode == Mode.Raster) {
-					Log.v(TAG, "renderPreview raster start");
 					// Gaussian blur
 					if (blur > 0) {
 						Imgproc.GaussianBlur(imageScaledToPreview_, previewImage_, new Size(), blur);
-						Log.v(TAG, "preview image blurred");
 					} else {
 						imageScaledToPreview_.assignTo(previewImage_);
-						Log.v(TAG, "preview image assigned");
 					}
 
 					// Simulate threshold
 					Mat add = new Mat(previewImage_.size(), previewImage_.type());
 					add.setTo(new Scalar(threshold * 255));
 					Core.scaleAdd(previewImage_, 1, add, previewImage_);
-					Log.v(TAG, "renderPreview raster done");
 				} else {
 					previewImage_.setTo(new Scalar(255));
-					Point prevPoint = null;
 					final Scalar black = new Scalar(0);
+					Point prevPoint = null;
+					int i = 0;
 					for (Map.Entry<Integer, Point> e : lines_.entrySet()) {
 						int key = e.getKey();
 						if (key > scaledThreshold_) {
 							break;
 						}
-						Point p = scalePoint(e.getValue(), blur);
-						if (prevPoint != null) {
+						if (i == 0) {
+							prevPoint = scalePoint(e.getValue(), blur);
+							i = 1;
+						} else {
+							Point p = scalePoint(e.getValue(), blur);
 							Imgproc.line(previewImage_, prevPoint, p, black);
+							if (continuous_) {
+								prevPoint = p;
+							} else {
+								i = 0;
+							}
 						}
-						prevPoint = p;
 					}
 				}
 			}
@@ -645,8 +654,12 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		previewCheckbox_.setChecked(false);
 		previewCheckbox_.setOnCheckedChangeListener(updateListener_);
 
+		continuousCheckbox_ = (CheckBox) findViewById(R.id.continuous);
+		continuousCheckbox_.setChecked(true);
+
 		doneButton_ = (Button) findViewById(R.id.done);
 		doneButton_.setOnClickListener(this);
+
 	}
 
 	@Override

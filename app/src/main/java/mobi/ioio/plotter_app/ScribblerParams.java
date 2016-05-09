@@ -15,13 +15,15 @@ public class ScribblerParams {
     public Uri uri_;
     public float blur_;
     public float threshold_;
+    public boolean continuous_;
     public Mode mode_;
 
-    ScribblerParams(Context context, Uri uri, float blur, float threshold, Mode mode) {
+    ScribblerParams(Context context, Uri uri, float blur, float threshold, boolean continuous, Mode mode) {
         this.context_ = context;
         this.uri_ = uri;
         this.blur_ = blur;
         this.threshold_ = threshold;
+        this.continuous_ = continuous;
         this.mode_ = mode;
     }
 }

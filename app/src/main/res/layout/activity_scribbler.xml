@@ -103,12 +103,12 @@
             android:checked="false"
             android:text="Preview" />
 
-        <Button
-            android:id="@+id/reset"
+        <CheckBox
+            android:id="@+id/continuous"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:enabled="false"
-            android:text="Reset" />
+            android:checked="true"
+            android:text="Continuous" />
 
         <Button
             android:id="@+id/done"
