@@ -282,66 +282,6 @@ public class EdgeTracerActivity extends Activity implements OnClickListener {
 		startActivityForResult(intent, GET_IMAGE_REQUEST_CODE);
 	}
 
-	private String showMatRow(Mat mat, int row) {
-		if (mat == null) {
-			return null;
-		}
-		int depth = mat.depth();
-		if (depth != CvType.depth(CvType.CV_8U)) {
-			return null;
-		}
-		int channels = mat.channels();
-		if (channels != 1 && channels != 3) {
-			return null;
-		}
-
-		int rows = mat.rows();
-		if (row < 0 || row >= rows) {
-			return null;
-		}
-		int cols = mat.cols();
-		if (cols > 60) {
-			cols = 60;
-		}
-		byte[] cell = new byte[channels];
-		String s = "[ ";
-		for (int j = 0; j < cols; ++j) {
-			if (j > 0) {
-				s += ", ";
-			}
-			mat.get(row, j, cell);
-			if (channels == 1) {
-				s += cell[0];
-			} else {
-				s += "( " + cell[0] + ", " + cell[1] + ", " + cell[2] + " )";
-			}
-		}
-		s += " ]";
-		return s;
-	}
-
-	private void logMat(String tag, Mat mat) {
-		int rows = mat.rows();
-		if (rows > 60) {
-			rows = 60;
-		}
-		for (int i = 0; i < rows; ++i) {
-			String row = showMatRow(mat, i);
-			if (row == null) {
-				break;
-			}
-			Log.v(tag, row);
-		}
-	}
-
-	private String debugMat(Mat mat) {
-		if (mat == null) {
-			return "null";
-		}
-		return "rows " + mat.rows() + ", cols " + mat.cols() +
-			", type " + CvType.typeToString(mat.type());
-	}
-
 	private void done() {
 		// /////////////////////////////////////////////////////////////////////////
 		// Mirror

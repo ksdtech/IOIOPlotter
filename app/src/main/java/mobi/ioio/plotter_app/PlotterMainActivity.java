@@ -271,10 +271,9 @@ public class PlotterMainActivity extends Activity implements OnClickListener,
 				try {
 					multiCurveUri_ = data.getData();
 					thumbnailUri_ = (Uri) data.getParcelableExtra("thumbnail");
-					Log.v(TAG, "Received path result " + multiCurveUri_.toString());
-
 					updateGui();
 				} catch (Exception e) {
+					Log.e(TAG, "Error getting data");
 					e.printStackTrace();
 				}
 			}
@@ -282,8 +281,7 @@ public class PlotterMainActivity extends Activity implements OnClickListener,
 	}
 
 	private void updateGui() {
-
-		final boolean hasPath = multiCurveUri_ != null;
+		final boolean hasPath = (multiCurveUri_ != null && thumbnailUri_ != null);
 		Log.v(TAG, "updateGui hasPath " + (hasPath ? "true" : "false") +
 				", bound_ " + (bound_ ? "true" : "false") +
 				", serviceState_ " + serviceState_.name());

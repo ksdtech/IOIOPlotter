@@ -105,13 +105,34 @@ Then the Edge Tracer UI works until you click "Done". Then, app stops. Debugger 
     at mobi.ioio.plotter_app.EdgeTracerActivity.HitAndMiss
     
 Fixed this by setting the size of the dst matrix used in the HitAndMiss function.
- 
-Now both the Edge Tracer and Scribbler activities bomb after processing:
+But thinning doesn't seem to work--instead it actually selects all pixels in the
+image. I "fixed" the thin() function by changing the algorithm to a different one 
+I found on the web.
+
+Scribbler bombs during image processing with:
+
+    mobi.ioio.plotter_app E/cv::error(): OpenCV Error: Assertion failed ((mtype == CV_8UC1 || mtype == CV_8SC1) && _mask.sameSize(*psrc1)) in void cv::arithm_op(cv::InputArray, cv::InputArray, cv::OutputArray, cv::InputArray, int, void (**)(const uchar*, size_t, const uchar*, size_t, uchar*, size_t, cv::Size, void*), bool, void*, int), file /home/maksim/workspace/android-pack/opencv/modules/core/src/arithm.cpp, line 2043
+    mobi.ioio.plotter_app E/org.opencv.core: core::subtract_10() caught cv::Exception: /home/maksim/workspace/android-pack/opencv/modules/core/src/arithm.cpp:2043: error: (-215) (mtype == CV_8UC1 || mtype == CV_8SC1) && _mask.sameSize(*psrc1) in function void cv::arithm_op(cv::InputArray, cv::InputArray, cv::OutputArray, cv::InputArray, int, void (**)(const uchar*, size_t, const uchar*, size_t, uchar*, size_t, cv::Size, void*), bool, void*, int)
+    mobi.ioio.plotter_app W/System.err: CvException [org.opencv.core.CvException: cv::Exception: /home/maksim/workspace/android-pack/opencv/modules/core/src/arithm.cpp:2043: error: (-215) (mtype == CV_8UC1 || mtype == CV_8SC1) && _mask.sameSize(*psrc1) in function void cv::arithm_op(cv::InputArray, cv::InputArray, cv::OutputArray, cv::InputArray, int, void (**)(const uchar*, size_t, const uchar*, size_t, uchar*, size_t, cv::Size, void*), bool, void*, int)
+    mobi.ioio.plotter_app W/System.err: ]
+    mobi.ioio.plotter_app W/System.err:     at org.opencv.core.Core.subtract_0(Native Method)
+    mobi.ioio.plotter_app W/System.err:     at org.opencv.core.Core.subtract(Core.java:2065)
+    mobi.ioio.plotter_app W/System.err:     at mobi.ioio.plotter_app.Scribbler.nextLine(Scribbler.java:378)
+
+In OpenCV 3.0.0 source code that assertion is:
+
+    const _InputArray *psrc = &_src1;
+    int mtype = _mask.type();
+    CV_Assert( (mtype == CV_8UC1 || mtype == CV_8SC1) && _mask.sameSize(*psrc1) );
+    
+_src1 is the 1st and _mask is the 4th parameter passed to arithm_op and also to
+cv::stubtract.
+
+Edge Tracer activity bombs after processing:
 
     mobi.ioio.plotter_app A/libc: Fatal signal 11 (SIGSEGV), code 1, fault addr 0x10 in tid 10336 (Thread-2181)
     mobi.ioio.plotter_app W/ResourcesManager: Asset path '/system/framework/com.android.future.usb.accessory.jar' does not exist or contains no resources.
 
-Opened SDK Manager with Tools > Android > SDK Manager.
-
-See this? http://jeffreysambells.com/2011/05/15/identifying-your-android-usb-accessory
-Added <uses-feature> element to the manifest.
+Opened SDK Manager with Tools > Android > SDK Manager, and added Google API
+libraries. Also added <uses-feature> element to the manifest. Maybe this is necessary: 
+http://jeffreysambells.com/2011/05/15/identifying-your-android-usb-accessory
