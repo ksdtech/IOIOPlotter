@@ -9,7 +9,6 @@ import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -105,9 +104,6 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			if (resultCode == RESULT_OK) {
 				cancelTask();
 
-				if (scribbler_ != null) {
-					scribbler_.cancel(true);
-				}
 				imageUri_ = data.getData();
 				selectImageTextView_.setVisibility(View.GONE);
 				imageView_.setVisibility(View.VISIBLE);
@@ -227,35 +223,41 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		private static final float GRAY_RESOLUTION = 128.f;
 		private static final int NUM_ATTEMPTS = 100;
 		private static final int MAX_LINES = 2000;
+		private static final float THRESHOLD_SCALE = -100000.f;
 		private Random random_;
-		private float thresholdScale_;
-		private int scaledThreshold_;
+		private Scalar black_;
+		private Scalar white_;
+		private Scalar gray_;
+
+		private boolean done_;
+		private float residualDarkness_;
+		private float scaledThreshold_;
+		private float maxSegment_ = 0.3f;
 		private Mat srcImage_;
 		private Mat imageScaledToPreview_;
 		private Mat imageResidue_;
 		private Mat previewImage_;
-		private float residualDarkness_;
-		private SortedMap<Integer, Point> lines_ = new TreeMap<Integer, Point>();
-		private boolean cancelled_;
-		private boolean done_;
+		private SortedMap<Float, Float[]> lines_ = new TreeMap<Float, Float[]>();
 
 		@Override
+		// The default implementation is an empty code block.
 		protected void onPreExecute() {
-			super.onPreExecute();
 			random_ = new Random();
+			black_ = new Scalar(0);
+			white_ = new Scalar(255);
+			gray_ = new Scalar(GRAY_RESOLUTION);
+			done_ = false;
+			residualDarkness_ = 0;
+			scaledThreshold_ = 0;
 			srcImage_ = null;
 			imageScaledToPreview_ = null;
 			imageResidue_ = null;
 			previewImage_ = null;
-			residualDarkness_ = 0.f;
 			lines_.clear();
-			cancelled_ = false;
-			done_ = false;
-			thresholdScale_ = -10000.f;
-			scaledThreshold_ = 0;
 		}
 
 		@Override
+		// The default implementation is an empty code block.
 		protected void onProgressUpdate(ScribblerProgressData... values) {
 			updateProgressUi(values[0].darkness_, values[0].numLines_);
 			if (values[0].preview_ != null) {
@@ -264,49 +266,52 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		}
 
 		@Override
+		// The default implementation simply invokes onCancelled() and ignores the result.
+		// If you write your own implementation, do not call super.onCancelled(result).
 		protected void onCancelled(ScribblerResult result) {
-			cancelled_ = true;
-
 			Log.v(TAG, "onCancelled");
-			if (Build.VERSION.SDK_INT >= 11) {
-				super.onCancelled(result);
-			}
+			onScribblerResult(false, result.continuous_, result.points_, result.bounds_, result.thumbnail_);
 		}
 
 		@Override
+		// The default implementation is an empty code block.
 		protected void onPostExecute(ScribblerResult result) {
 			Log.v(TAG, "onPostExecute");
-			onScribblerResult(result.points_, result.bounds_, result.thumbnail_);
+			onScribblerResult(true, result.continuous_, result.points_, result.bounds_, result.thumbnail_);
 		}
 
 		@Override
+		// If you are calling cancel(boolean) on the task, the value returned by isCancelled()
+		// should be checked periodically from doInBackground(Object[]) to end the task
+		// as soon as possible.
 		protected ScribblerResult doInBackground(ScribblerParams... params) {
 			context_ = params[0].context_;
 			uri_ = params[0].uri_;
 			blur_ = params[0].blur_;
 			threshold_ = params[0].threshold_;
 			continuous_ = params[0].continuous_;
+			scaledThreshold_ = threshold_ * THRESHOLD_SCALE;
 			mode_ = params[0].mode_;
 
-			done_ = false;
-			cancelled_ = false;
-			Log.v(TAG, "doInBackground blur=" + blur_ + ", threshold=" + threshold_ + ", mode=" + mode_.name());
+			Log.v(TAG, "doInBackground blur=" + blur_ + ", threshold=" + threshold_ +
+					", scaledThreshold=" + scaledThreshold_ + ", mode=" + mode_.name());
 
 			try {
 				load();
 			} catch (Exception e) {
 				Log.e(TAG, "Error loading image");
 				e.printStackTrace();
-				done_ = true;
+				cancel(true);
 			}
 
-			while (!done_ && !cancelled_) {
+			while (!done_ && !isCancelled()) {
 				try {
 					done_ = step();
 				} catch (InterruptedException e) {
 				} catch (Exception e) {
+					Log.e(TAG, "Error performing step");
 					e.printStackTrace();
-					done_ = true;
+					cancel(true);
 				}
 			}
 
@@ -334,14 +339,14 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		private boolean step() throws InterruptedException {
 			boolean sameDarkness = false;
 			boolean allLinesDirty = imageResidue_ == null;
-			boolean needMoreLines = !cancelled_;
+			boolean needMoreLines = !isCancelled();
 			if (needMoreLines && !allLinesDirty) {
 				int numLines = lines_.size();
 				if (numLines >= MAX_LINES) {
 					Log.v(TAG, "step done! MAX_LINES " + MAX_LINES + " exceeded ( " + numLines + " )");
 					needMoreLines = false;
 				} else if (numLines > 0) {
-					int lastKey = lines_.lastKey();
+					float lastKey = lines_.lastKey();
 					if (lastKey > scaledThreshold_) {
 						Log.v(TAG, "step done! threshold " + scaledThreshold_ + " exceeded ( " + lastKey + " )");
 						needMoreLines = false;
@@ -350,28 +355,43 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			}
 			boolean previewDirty = previewImage_ == null || (needMoreLines && mode_ == Mode.Vector);
 
-			if (!cancelled_ && allLinesDirty) {
+			if (!isCancelled() && allLinesDirty) {
 				initLines(blur_);
 			}
-			if (!cancelled_ && needMoreLines) {
+			if (!isCancelled() && needMoreLines) {
 				generateLine(blur_);
 			}
-			if (!cancelled_ && previewDirty) {
+			if (!isCancelled() && previewDirty) {
 				renderPreview(blur_, threshold_, mode_);
 			}
-			if (!cancelled_ && (needMoreLines || previewDirty)) {
-				publishProgress(new ScribblerProgressData(residualDarkness_, lines_.size(), previewImage_));
+			if (!isCancelled() && (needMoreLines || previewDirty)) {
+				publishProgress(new ScribblerProgressData(residualDarkness_, lines_.size(),
+						previewDirty ? previewImage_ : null));
 			}
+
 			return !needMoreLines;
 		}
 
 		private ScribblerResult getScribblerResult(float blur, float threshold) {
-
-			// Generate point array.
+			// Generate point array for trace file.
 			Point[] points = null;
 			Rect bounds = null;
+			boolean firstPoint = true;
 			if (!lines_.isEmpty() && imageResidue_ != null) {
-				points = (Point[]) lines_.values().toArray(new Point[0]);
+				List<Point> plist = new ArrayList<Point>();
+				for (Map.Entry<Float, Float[]> e : lines_.entrySet()) {
+					float key = e.getKey();
+					if (key > scaledThreshold_) {
+						break;
+					}
+					Float[] coords = e.getValue();
+					if (firstPoint || !continuous_) {
+						plist.add(new Point(coords[0], coords[1]));
+					}
+					plist.add(new Point(coords[2], coords[3]));
+					firstPoint = false;
+				}
+				points = plist.toArray(new Point[0]);
 				bounds = new Rect(0, 0, imageResidue_.cols(), imageResidue_.rows());
 			}
 
@@ -387,13 +407,26 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 				Utils.matToBitmap(thumbnail, bmp);
 			}
 
-			return new ScribblerResult(cancelled_, residualDarkness_, lines_.size(), points, bounds, bmp);
+			return new ScribblerResult(residualDarkness_, lines_.size(), continuous_,
+					points, bounds, bmp);
 		}
 
-		private int addPoint(Point p, float blur) {
+		private float addLine(int len, Point[] line, float blur) {
 			residualDarkness_ =  darkness(imageResidue_) / blur;
-			int key = (int) Math.floor(residualDarkness_ * thresholdScale_);
-			lines_.put(key, p);
+			float key = residualDarkness_ * THRESHOLD_SCALE;
+			if (len == 0) {
+				// continuous, first line (two points)
+				lines_.put(key, new Float[]{ (float) line[1].x, (float) line[1].y });
+				lines_.put(key, new Float[]{ (float) line[1].x, (float) line[1].y });
+			} else if (len == 2) {
+				// continuous, after first line
+				lines_.put(key, new Float[]{ (float) line[1].x, (float) line[1].y });
+			} else if (len == 4) {
+				// non-continuous
+				lines_.put(key, new Float[]{
+						(float) line[0].x, (float) line[0].y,
+						(float) line[1].x, (float) line[1].y });
+			}
 			return key;
 		}
 
@@ -420,29 +453,28 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			Mat zeros = Mat.zeros(s, imageResidue_.type());
 			Core.scaleAdd(imageResidue_, scaledBlur, zeros, imageResidue_);
 
-			residualDarkness_ = darkness(imageResidue_) / blur;
-			thresholdScale_ = -10000.f / residualDarkness_;
-			scaledThreshold_ = (int) Math.floor(threshold_ * thresholdScale_);
-			Log.v(TAG, "initLines darkness=" + residualDarkness_ + ", thresholdScale_=" + thresholdScale_ +
-				", scaledThreshold_=" + scaledThreshold_);
+			// Scale the initial darkness value well below
+			residualDarkness_ = (darkness(imageResidue_) / blur) + THRESHOLD_SCALE;
+			Log.v(TAG, "initLines darkness=" + residualDarkness_ + ", scaledThreshold_=" + scaledThreshold_);
 
 			// Clear map.
 			lines_.clear();
 		}
 
-		private int generateLine(float blur) {
+		private float generateLine(float blur) {
 			Point[] line = null;
-			int key;
-			if (lines_.isEmpty() || !continuous_) {
-				line = nextLine(imageResidue_, NUM_ATTEMPTS, null);
-				addPoint(line[0], blur);
-				key = addPoint(line[1], blur);
+			float key = Float.MAX_VALUE;
+			if (lines_.isEmpty()) {
+				line = nextLine(imageResidue_, continuous_, NUM_ATTEMPTS, maxSegment_, null);
+				key = addLine(0, line, blur);
 			} else {
-				Point startPoint = lines_.get(lines_.lastKey());
-				line = nextLine(imageResidue_, NUM_ATTEMPTS, startPoint);
-				key = addPoint(line[1], blur);
+				Float[] lastLine = lines_.get(lines_.lastKey());
+				int len = lastLine.length;
+				Point startPoint = new Point(lastLine[len-2], lastLine[len-1]);
+				line = nextLine(imageResidue_, continuous_, NUM_ATTEMPTS, maxSegment_, startPoint);
+				key = addLine(continuous_ ? 2 : 4, line, blur);
 			}
-			Log.v(TAG, "generateLine [" + line[0].toString() + " - " + line[1].toString() + "] (" + key + ")");
+			Log.v(TAG, "generate " + Math.floor(key) + " [" + line[0].toString() + " - " + line[1].toString() + "]");
 			return key;
 		}
 
@@ -464,37 +496,45 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 
 					// Simulate threshold
 					Mat add = new Mat(previewImage_.size(), previewImage_.type());
-					add.setTo(new Scalar(threshold * 255));
+					add.setTo(new Scalar(threshold * 255.f));
 					Core.scaleAdd(previewImage_, 1, add, previewImage_);
 				} else {
-					previewImage_.setTo(new Scalar(255));
-					final Scalar black = new Scalar(0);
-					Point prevPoint = null;
-					int i = 0;
-					for (Map.Entry<Integer, Point> e : lines_.entrySet()) {
-						int key = e.getKey();
+					Point[] p = new Point[2];
+					p[0] = new Point();
+					p[1] = new Point();
+					boolean firstPoint = true;
+					previewImage_.setTo(white_);
+					for (Map.Entry<Float, Float[]> e : lines_.entrySet()) {
+						float key = e.getKey();
 						if (key > scaledThreshold_) {
 							break;
 						}
-						if (i == 0) {
-							prevPoint = scalePoint(e.getValue(), blur);
-							i = 1;
-						} else {
-							Point p = scalePoint(e.getValue(), blur);
-							Imgproc.line(previewImage_, prevPoint, p, black);
-							if (continuous_) {
-								prevPoint = p;
+						Float[] coords = e.getValue();
+						int len = coords.length;
+						if (len == 2) {
+							if (firstPoint) {
+								p[0].x = coords[0] * blur;
+								p[0].y = coords[1] * blur;
 							} else {
-								i = 0;
+								p[1].x = coords[0] * blur;
+								p[1].y = coords[1] * blur;
+								Log.v(TAG, "renderPreview " + Math.floor(key) + ": [" + p[0].toString() + " - " + p[1].toString() + "]");
+								Imgproc.line(previewImage_, p[0], p[1], black_);
+								p[0].x = p[1].x;
+								p[0].y = p[1].y;
 							}
+						} else {
+							p[0].x = coords[0] * blur;
+							p[0].y = coords[1] * blur;
+							p[1].x = coords[2] * blur;
+							p[1].y = coords[3] * blur;
+							Log.v(TAG, "renderPreview " + Math.floor(key) + ": [" + p[0].toString() + " - " + p[1].toString() + "]");
+							Imgproc.line(previewImage_, p[0], p[1], black_);
 						}
+						firstPoint = false;
 					}
 				}
 			}
-		}
-
-		private Point scalePoint(Point p, float scale) {
-			return new Point(p.x * scale, p.y * scale);
 		}
 
 		private InputStream resolveUri(Context context, Uri uri) throws IOException,
@@ -541,21 +581,21 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		 *            will comprise two random point.
 		 * @return The optimal line.
 		 */
-		private Point[] nextLine(Mat image, int numAttempts, Point startPoint) {
+		private Point[] nextLine(Mat image, boolean continuous, int numAttempts, float maxSegment, Point startPoint) {
 			Mat mask = new Mat(image.size(), CvType.CV_8UC1);
 			Point[] line = new Point[2];
+			line[0] = new Point();
+			line[1] = new Point();
 			Point[] bestLine = null;
-			Scalar gray = new Scalar(GRAY_RESOLUTION);
 			double bestScore = Float.NEGATIVE_INFINITY;
-			List<Point> points = generateRandomPoints(image.size(), startPoint, numAttempts);
-			for (int i = 1; i < points.size(); ++i) {
-				if (i == 1 || startPoint == null) {
-					line[0] = points.get(i-1);
-				}
-				line[1] = points.get(i);
-
-				mask.setTo(new Scalar(0));
-				Imgproc.line(mask, line[0], line[1], gray);
+			List<Float[]> lines = generateRandomLines(image.size(), numAttempts, maxSegment, startPoint);
+			for (Float[] coords : lines) {
+				line[0].x = coords[0];
+				line[0].y = coords[1];
+				line[1].x = coords[2];
+				line[1].y = coords[3];
+				mask.setTo(black_);
+				Imgproc.line(mask, line[0], line[1], gray_);
 
 				double score = Core.mean(image, mask).val[0];
 				if (score > bestScore) {
@@ -587,29 +627,52 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			return bestLine;
 		}
 
-		private List<Point> generateRandomPoints(Size s, Point startPoint, int numPoints) {
-			List<Point> list = new ArrayList<Point>();
-			if (numPoints >= s.area()) {
-				numPoints = (int) s.area()-1;
+		private List<Float[]> generateRandomLines(Size s, int numPoints, float maxSegment, Point startPoint) {
+			float d = 0;
+			if (false /*maxSegment > 0*/) {
+				d = (float) s.width;
+				if (d > (float) s.height) {
+					d = (float) s.height;
+				}
+				d = d * maxSegment;
 			}
+			if (numPoints >= s.area()) {
+				numPoints = (int) s.area();
+			}
+			List<Float[]> list = new ArrayList<Float[]>();
 			while (list.size() < numPoints) {
-				int col = (int) Math.round(random_.nextDouble() * s.width);
-				int row = (int) Math.round(random_.nextDouble() * s.height);
-				Point p = new Point(col, row);
-				if ((startPoint == null || !p.equals(startPoint)) && !list.contains(p)) {
-					list.add(p);
+				Float[] coords;
+				if (startPoint != null) {
+					coords = new Float[]{
+							(float) startPoint.x,
+							(float) startPoint.y,
+							(float) (random_.nextDouble() * s.width),
+							(float) (random_.nextDouble() * s.height)
+					};
+				} else {
+					// TODO: constrain non-continuous lines by angle, length, etc.
+					coords = new Float[]{
+							(float) (random_.nextDouble() * s.width),
+							(float) (random_.nextDouble() * s.height),
+							(float) (random_.nextDouble() * s.width),
+							(float) (random_.nextDouble() * s.height)
+					};
+				}
+				if (d == 0 || lineLength(coords) <= d) {
+					list.add(coords);
 				}
 			}
 			Collections.shuffle(list);
-			if (startPoint != null) {
-				list.add(0, startPoint);
-			}
 			return list;
+		}
+
+		private float lineLength(Float[] coords) {
+			return (float) Math.hypot(coords[2] - coords[0], coords[3] - coords[1]);
 		}
 
 		private float darkness(Mat in) {
 			double total = Core.sumElems(in).val[0];
-			return (float) (total / in.cols() / in.rows() / GRAY_RESOLUTION);
+			return (float) (total / GRAY_RESOLUTION / (in.rows() * in.cols()));
 		}
 	}
 
@@ -623,7 +686,7 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 	private void updateProgressUi(float darkness, int numLines) {
 		darkness_ = darkness;
 		numLines_ = numLines;
-		doneButton_.setEnabled(!donePressed_ && darkness < getThreshold());
+		doneButton_.setEnabled(!donePressed_ && darkness > getThreshold());
 		statusTextView_.setText(String.format("%.0f%% (%d)", darkness * 100, numLines));
 	}
 
@@ -689,7 +752,8 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		startActivityForResult(intent, GET_IMAGE_REQUEST_CODE);
 	}
 
-	private void onScribblerResult(Point[] points, Rect bounds, Bitmap thumbnail) {
+	private void onScribblerResult(boolean completed, boolean continuous,
+								   Point[] points, Rect bounds, Bitmap thumbnail) {
 		try {
 			Intent resultIntent = new Intent();
 			if (thumbnail != null) {
@@ -698,8 +762,8 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 				thumbnail.compress(CompressFormat.PNG, 100, new FileOutputStream(thumbnailFile));
 				resultIntent.putExtra("thumbnail", Uri.fromFile(thumbnailFile));
 			}
-			if (points != null && points.length > 0 && bounds != null) {
-				// Generate trace file.
+			if (continuous && points != null && points.length > 0 && bounds != null) {
+				// Generate SingleCurve trace file.
 				MultiCurve multiCurve = new SingleCurveMultiCurve(new PointsCurve(points),
 						getBounds(bounds));
 				File traceFile = File.createTempFile("TRACE", ".trc", getCacheDir());
@@ -726,5 +790,6 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		thresholdSeekBar_.setEnabled(false);
 		previewCheckbox_.setEnabled(false);
 		imageView_.setEnabled(false);
+		cancelTask();
 	}
 }
