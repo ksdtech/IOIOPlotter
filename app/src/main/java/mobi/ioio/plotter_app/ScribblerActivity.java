@@ -54,6 +54,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 import mobi.ioio.plotter.Plotter.MultiCurve;
+import mobi.ioio.plotter.shapes.MultiLineMultiCurve;
 import mobi.ioio.plotter.shapes.PointsCurve;
 import mobi.ioio.plotter.shapes.SingleCurveMultiCurve;
 import mobi.ioio.plotter_app.ScribblerParams.Mode;
@@ -86,6 +87,7 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		Log.i(TAG, "Trying to load OpenCV library");
 		if (!OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mOpenCVCallBack)) {
 			Toast.makeText(this, "Cannot connect to OpenCV Manager", Toast.LENGTH_LONG).show();
+			setResult(RESULT_CANCELED);
 			finish();
 		}
 	}
@@ -119,17 +121,18 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 	}
 
 	private void startTask() {
-		Log.v(TAG, "startTask");
-		if (scribbler_ == null) {
+		if (scribbler_ == null || scribbler_.getStatus() == AsyncTask.Status.FINISHED) {
+			Log.v(TAG, "startTask: creating new task");
 			scribbler_ = new ScribblerTask();
 		}
 		AsyncTask.Status status = scribbler_.getStatus();
-		if (status != AsyncTask.Status.FINISHED && status != AsyncTask.Status.RUNNING) {
+		if (status != AsyncTask.Status.RUNNING) {
 			ScribblerParams params = new ScribblerParams(this, imageUri_,
 					getBlur(), getThreshold(), getContinuous(), getMode());
+			Log.v(TAG, "startTask: executing task");
 			scribbler_.execute(params);
 		} else {
-			Log.e(TAG, "Error: Cannot start task - status is " + status.name());
+			Log.e(TAG, "Error in startTask: status is " + status.name());
 		}
 	}
 
@@ -137,7 +140,6 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		Log.v(TAG, "cancelTask");
 		if (scribbler_ != null) {
 			scribbler_.cancel(true);
-			scribbler_ = null;
 		}
 	}
 
@@ -376,7 +378,6 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			// Generate point array for trace file.
 			Point[] points = null;
 			Rect bounds = null;
-			boolean firstPoint = true;
 			if (!lines_.isEmpty() && imageResidue_ != null) {
 				List<Point> plist = new ArrayList<Point>();
 				for (Map.Entry<Float, Float[]> e : lines_.entrySet()) {
@@ -385,11 +386,11 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 						break;
 					}
 					Float[] coords = e.getValue();
-					if (firstPoint || !continuous_) {
-						plist.add(new Point(coords[0], coords[1]));
+					int len = coords.length;
+					plist.add(new Point(coords[0], coords[1]));
+					if (len == 4) {
+						plist.add(new Point(coords[2], coords[3]));
 					}
-					plist.add(new Point(coords[2], coords[3]));
-					firstPoint = false;
 				}
 				points = plist.toArray(new Point[0]);
 				bounds = new Rect(0, 0, imageResidue_.cols(), imageResidue_.rows());
@@ -465,16 +466,16 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 			Point[] line = null;
 			float key = Float.MAX_VALUE;
 			if (lines_.isEmpty()) {
-				line = nextLine(imageResidue_, continuous_, NUM_ATTEMPTS, maxSegment_, null);
+				line = nextLine(imageResidue_, NUM_ATTEMPTS, maxSegment_, null);
 				key = addLine(0, line, blur);
 			} else {
 				Float[] lastLine = lines_.get(lines_.lastKey());
 				int len = lastLine.length;
-				Point startPoint = new Point(lastLine[len-2], lastLine[len-1]);
-				line = nextLine(imageResidue_, continuous_, NUM_ATTEMPTS, maxSegment_, startPoint);
+				Point startPoint = continuous_ ? new Point(lastLine[len-2], lastLine[len-1]) : null;
+				line = nextLine(imageResidue_, NUM_ATTEMPTS, maxSegment_, startPoint);
 				key = addLine(continuous_ ? 2 : 4, line, blur);
 			}
-			Log.v(TAG, "generate " + Math.floor(key) + " [" + line[0].toString() + " - " + line[1].toString() + "]");
+			Log.v(TAG, String.format("generateLine [%d]: %.1f", lines_.size(), key));
 			return key;
 		}
 
@@ -518,7 +519,6 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 							} else {
 								p[1].x = coords[0] * blur;
 								p[1].y = coords[1] * blur;
-								Log.v(TAG, "renderPreview " + Math.floor(key) + ": [" + p[0].toString() + " - " + p[1].toString() + "]");
 								Imgproc.line(previewImage_, p[0], p[1], black_);
 								p[0].x = p[1].x;
 								p[0].y = p[1].y;
@@ -528,7 +528,6 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 							p[0].y = coords[1] * blur;
 							p[1].x = coords[2] * blur;
 							p[1].y = coords[3] * blur;
-							Log.v(TAG, "renderPreview " + Math.floor(key) + ": [" + p[0].toString() + " - " + p[1].toString() + "]");
 							Imgproc.line(previewImage_, p[0], p[1], black_);
 						}
 						firstPoint = false;
@@ -581,12 +580,12 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		 *            will comprise two random point.
 		 * @return The optimal line.
 		 */
-		private Point[] nextLine(Mat image, boolean continuous, int numAttempts, float maxSegment, Point startPoint) {
+		private Point[] nextLine(Mat image, int numAttempts, float maxSegment, Point startPoint) {
 			Mat mask = new Mat(image.size(), CvType.CV_8UC1);
 			Point[] line = new Point[2];
 			line[0] = new Point();
 			line[1] = new Point();
-			Point[] bestLine = null;
+			Point[] bestLine = new Point[2];
 			double bestScore = Float.NEGATIVE_INFINITY;
 			List<Float[]> lines = generateRandomLines(image.size(), numAttempts, maxSegment, startPoint);
 			for (Float[] coords : lines) {
@@ -600,7 +599,8 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 				double score = Core.mean(image, mask).val[0];
 				if (score > bestScore) {
 					bestScore = score;
-					bestLine = line.clone();
+					bestLine[0] = line[0].clone();
+					bestLine[1] = line[1].clone();
 				}
 			}
 			if (bestLine != null) {
@@ -629,7 +629,7 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 
 		private List<Float[]> generateRandomLines(Size s, int numPoints, float maxSegment, Point startPoint) {
 			float d = 0;
-			if (false /*maxSegment > 0*/) {
+			if (maxSegment > 0) {
 				d = (float) s.width;
 				if (d > (float) s.height) {
 					d = (float) s.height;
@@ -722,7 +722,6 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 
 		doneButton_ = (Button) findViewById(R.id.done);
 		doneButton_.setOnClickListener(this);
-
 	}
 
 	@Override
@@ -742,6 +741,7 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		} else if (view == selectImageTextView_) {
 			selectImage();
 		} else if (view == doneButton_) {
+			cancelTask();
 			done();
 		}
 	}
@@ -756,25 +756,47 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 								   Point[] points, Rect bounds, Bitmap thumbnail) {
 		try {
 			Intent resultIntent = new Intent();
+
 			if (thumbnail != null) {
 				// Write thumbnail file.
 				File thumbnailFile = File.createTempFile("THUMB", ".png", getCacheDir());
 				thumbnail.compress(CompressFormat.PNG, 100, new FileOutputStream(thumbnailFile));
 				resultIntent.putExtra("thumbnail", Uri.fromFile(thumbnailFile));
+				Log.v(TAG, "onScribblerResult: set thumbnail");
 			}
-			if (continuous && points != null && points.length > 0 && bounds != null) {
-				// Generate SingleCurve trace file.
-				MultiCurve multiCurve = new SingleCurveMultiCurve(new PointsCurve(points),
-						getBounds(bounds));
+
+			if (points != null && points.length > 1 && bounds != null) {
+				MultiCurve multiCurve = null;
+				if (continuous) {
+					// Generate SingleCurve trace file.
+					multiCurve = new SingleCurveMultiCurve(
+							new PointsCurve(points), getBounds(bounds));
+				} else {
+					// Generate MultiLine trace file.
+					int numCurves = points.length / 2;
+					PointsCurve[] curves = new PointsCurve[numCurves];
+					for (int i = 0; i < numCurves; i++) {
+						Point[] line = new Point[2];
+						line[0] = points[i*2];
+						line[1] = points[i*2 + 1];
+						curves[i] = new PointsCurve(line);
+					}
+					multiCurve = new MultiLineMultiCurve(curves, getBounds(bounds));
+				}
 				File traceFile = File.createTempFile("TRACE", ".trc", getCacheDir());
 				ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(traceFile));
 				oos.writeObject(multiCurve);
 				oos.close();
 				resultIntent.setData(Uri.fromFile(traceFile));
+				Log.v(TAG, "onScribblerResult: set data");
 			}
+
+			Log.v(TAG, "onScribblerResult: setting OK result");
 			setResult(RESULT_OK, resultIntent);
 		} catch (IOException e) {
+			Log.e(TAG, "Error in onScribblerResult: setting CANCELED result");
 			e.printStackTrace();
+			setResult(RESULT_CANCELED);
 		}
 		finish();
 	}
@@ -790,6 +812,5 @@ public class ScribblerActivity extends Activity implements OnClickListener {
 		thresholdSeekBar_.setEnabled(false);
 		previewCheckbox_.setEnabled(false);
 		imageView_.setEnabled(false);
-		cancelTask();
 	}
 }
